@@ -27,4 +27,5 @@ def main():
     print(f"input_len: {args.input_len}")
 
 if __name__ == "__main__":
+    #python test_argparse.py  --batch 3 4 5
     main() 

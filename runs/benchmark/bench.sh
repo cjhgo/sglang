@@ -1,0 +1,2 @@
+# python bench_latency_test.py --model-path deepseek-ai/Janus-Pro-1B --tp-size 8 --batch 4 8 12 16 20 24 28 32
+python bench_correct_test.py --model-path deepseek-ai/Janus-Pro-1B --tp-size 8 --batch 4 8 12 16 20 24 28 32

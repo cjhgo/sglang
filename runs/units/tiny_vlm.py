@@ -79,5 +79,5 @@ def inputid_version():
 
 if __name__ == "__main__":
     # 演示两种方式
-    inputid_version()
+    # inputid_version()
     prompt_version()

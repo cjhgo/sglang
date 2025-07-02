@@ -35,6 +35,11 @@ exp_qwen2vl = ExpArgs(
     chat_template="qwen2-vl",
 )
 
+exp_gemma = ExpArgs(
+    model_path="google/gemma-3-4b-it",
+    chat_template="gemma-it",
+)
+
 
 
 def create_processor_components(exp_args: ExpArgs):
@@ -113,6 +118,11 @@ def call_processor(exp_args: ExpArgs, mm_processor, one_req):
             image_token=mm_processor.image_token, 
             audio_token=mm_processor.audio_token
         )
+    elif "gemma" in exp_args.chat_template.lower():
+        multimodal_tokens = MultimodalSpecialTokens(
+            image_token=mm_processor.IMAGE_TOKEN,
+            image_token_regex=mm_processor.IMAGE_TOKEN_REGEX,
+        )
     else:
         raise ValueError(f"Unsupported model: {exp_args.model_path}")
     
@@ -163,10 +173,10 @@ def test_sgl_processor(exp_args: ExpArgs):
     print(f"mm_processor 已成功创建并可以使用")
 
 
-def test_qwenvl_prec_processor(exp_args: ExpArgs):
-    """测试 QwenVL 预计算特征处理"""
+def test_gemma_pixel_processor(exp_args: ExpArgs):
+    """测试 Gemma pixel 输入处理 - 演示 pixel_values 输入用法"""
     import torch
-    from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+    from transformers import AutoProcessor
     from PIL import Image
     import requests
     from io import BytesIO
@@ -174,53 +184,30 @@ def test_qwenvl_prec_processor(exp_args: ExpArgs):
     import time
     from sglang.srt.multimodal.processors.base_processor import MultimodalSpecialTokens
     
-    # 测试图片 URL
-    TEST_IMAGE_URL = "https://github.com/sgl-project/sglang/blob/main/test/lang/example_image.png?raw=true"
-    
-    print(f"开始测试 QwenVL 预计算特征处理: {exp_args.model_path}")
+    print(f"开始测试 Gemma pixel 输入处理: {exp_args.model_path}")
     
     # 1. 创建 processor 相关组件
     mm_processor, processor, tokenizer = create_processor_components(exp_args)
-    
-    # 2. 下载测试图片
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    response = requests.get(TEST_IMAGE_URL)
-    main_image = Image.open(BytesIO(response.content))
-    
+    vqa, batch, input_text, image_data, one_req = create_dataset(exp_args)
+    text, image = one_req
     # 3. 使用 HF processor 处理输入
-    text = "What's in this picture?"
     processor_output = processor(
         text=[text],
-        images=[main_image],
+        images=image,
         return_tensors="pt",
-    ).to(device)
+    )
     
     print(f"HF processor 输出: {processor_output.keys()}")
     
-    # 4. 创建预计算特征
-    visual_model = (
-        Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            exp_args.model_path, torch_dtype=torch.bfloat16
-        )
-        .eval()
-        .visual.to(device)
-    )
-    
-    with torch.inference_mode():
-        precomputed_features = visual_model(
-            processor_output["pixel_values"], 
-            processor_output["image_grid_thw"]
-        )
-    
-    print(f"预计算特征形状: {precomputed_features.shape}")
-    
-    # 5. 创建预计算图像数据
-    precomputed_image_data = dict(
+    # 4. 创建 pixel_values 图像数据 - 参考 test_vlm_input_format.py 中的 _pixel_values_image_data
+    pixel_values_image_data = dict(
         modality="IMAGE",
-        precomputed_features=precomputed_features,
+        pixel_values=processor_output["pixel_values"][0],  # 取第一个样本
     )
     
-    # 6. 调用 mm_processor.process_mm_data_async
+    print(f"pixel_values 形状: {processor_output['pixel_values'][0].shape}")
+    
+    # 5. 调用 mm_processor.process_mm_data_async
     multimodal_tokens = MultimodalSpecialTokens(
         image_token=mm_processor.IMAGE_TOKEN,
         image_token_regex=mm_processor.IMAGE_TOKEN_REGEX,
@@ -230,18 +217,18 @@ def test_qwenvl_prec_processor(exp_args: ExpArgs):
     request_obj = lambda: None
     request_obj.audio_data = []
     
-    print("开始异步调用 process_mm_data_async 处理预计算特征...")
+    print("开始异步调用 process_mm_data_async 处理 pixel_values...")
     
     async_begin = -time.time()
     sgl_result = asyncio.run(mm_processor.process_mm_data_async(
-        image_data=[precomputed_image_data],
+        image_data=[pixel_values_image_data],
         audio_data=[],
         request_obj=request_obj,
         input_text=processor_output["input_ids"][0].detach().cpu().tolist(),
         max_req_input_len=exp_args.max_req_input_len
     ))
-    print(f"预计算特征处理时间: {time.time() + async_begin}")
-    import ipdb; ipdb.set_trace()   
+    print(f"pixel_values 处理时间: {time.time() + async_begin}")
+    
     print(f"处理结果: {type(sgl_result)}")
     if hasattr(sgl_result, 'input_ids'):
         print(f"输入 ID 长度: {len(sgl_result.input_ids)}")
@@ -257,8 +244,8 @@ if __name__ == "__main__":
     print("测试 Processor 性能")
     print("="*50)
     
-    # 测试 QwenVL 预计算特征处理
-    test_qwenvl_prec_processor(exp_qwen2vl)
+    # 测试 Gemma pixel 输入处理
+    test_gemma_pixel_processor(exp_gemma)
     print("\n" + "="*50 + "\n")
     
     test_sgl_processor(exp_qwen2vl)

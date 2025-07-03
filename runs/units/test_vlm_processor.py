@@ -110,20 +110,8 @@ class ProcessorTestBase(ABC):
     # @unittest.skip("skip")
     def test_prec_process(self):
         input_ids, pixel_values_image_data = self.get_pixel_values()
-        print(f"\n[DEBUG] pixel_values_image_data: {[{k: type(v).__name__ if k != 'modality' else v for k, v in item.items()} for item in pixel_values_image_data]}")
-        print(f"[DEBUG] pixel_values_image_data[0] keys: {pixel_values_image_data[0].keys()}")
-        
-        begin = time.time()
-        result = asyncio.run(self.mm_processor.process_pixel_data_async(
-            image_data=pixel_values_image_data,
-            audio_data=[],
-            input_text=input_ids,
-            request_obj=None,
-            max_req_input_len=self.max_req_input_len
-        ))
-        duration = time.time() - begin
+        result, duration = self._call_async_process(input_ids, pixel_values_image_data)
         print(f"prec_process 测试通过: {type(result)}, 耗时: {duration:.4f}s")
-        print(f"[DEBUG] prec_result mm_items: {len(result.get('mm_items', []))}")
         return result
 
     # @unittest.skip("skip")
@@ -200,7 +188,7 @@ class ProcessorTestBase(ABC):
             # 比较 tgt_size
             if hasattr(raw_item, 'tgt_size') and hasattr(prec_item, 'tgt_size'):
                 if len(raw_item.tgt_size) != len(prec_item.tgt_size):
-                    raise AssertionError(f"第 {i+1} 个 item 的 tgt_size 数量不匹配")
+                    raise AssertionError(f"第 {i+1} 个 item 的 tgt_size 数量不匹配: raw={len(raw_item.tgt_size)}, prec={len(prec_item.tgt_size)}")
                 
                 for j, (raw_ts, prec_ts) in enumerate(zip(raw_item.tgt_size, prec_item.tgt_size)):
                     if not torch.equal(raw_ts, prec_ts):
@@ -223,13 +211,6 @@ class ProcessorTestBase(ABC):
             modality="IMAGE",
             pixel_values=hf_out["pixel_values"][0],
         )
-        
-        # 添加 MiniCPM 特定的字段
-        if "tgt_sizes" in hf_out:
-            pixel_values_image_data["tgt_sizes"] = hf_out["tgt_sizes"][0]
-        elif "tgt_size" in hf_out:
-            pixel_values_image_data["tgt_size"] = hf_out["tgt_size"][0]
-            
         return input_ids, [pixel_values_image_data]
 
 
@@ -256,6 +237,36 @@ class TestMiniCPMVProcessor(ProcessorTestBase, unittest.TestCase):
             audio_token=self.mm_processor.audio_token
         )
 
+    def get_pixel_values(self):
+        text, image = self.one_req# image is [image]
+        hf_out = self.hf_processor(
+            text=[text],
+            images=image,
+            return_tensors="pt",
+        )
+        input_ids = hf_out["input_ids"][0].tolist()
+        
+        # 构建预计算数据，包含 MiniCPM 所需的所有字段
+        pixel_values_image_data = dict(
+            modality="IMAGE",
+            pixel_values=hf_out["pixel_values"][0],
+            tgt_sizes=hf_out["tgt_sizes"][0],
+        )
+        return input_ids, [pixel_values_image_data]
+
+    def test_prec_process(self):
+        input_ids, pixel_values_image_data = self.get_pixel_values()
+        begin = time.time()
+        result = asyncio.run(self.mm_processor.process_pixel_data_async(
+            image_data=pixel_values_image_data,
+            audio_data=[],
+            input_text=input_ids,
+            request_obj=None,
+            max_req_input_len=self.max_req_input_len
+        ))
+        duration = time.time() - begin
+        print(f"prec_process 测试通过: {type(result)}, 耗时: {duration:.4f}s")
+        return result
 
 @unittest.skip("skip")
 class TestQwen2VLProcessor(ProcessorTestBase, unittest.TestCase):

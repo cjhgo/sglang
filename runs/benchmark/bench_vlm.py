@@ -1,10 +1,7 @@
-import json
 import logging
 import unittest
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
-import datetime
-import os
+from typing import Any
 
 import torch
 from transformers import AutoTokenizer, AutoProcessor
@@ -15,6 +12,7 @@ from sglang.srt.conversation import generate_chat_conv
 from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest
 from sglang.srt.server_args import ServerArgs
 from vlm_data import VQADataset
+from bench_utils import process_bench_result, save_bench_results, quick_report
 
 # 设置日志级别
 logging.basicConfig(level=logging.INFO)
@@ -152,7 +150,6 @@ class VLMTestBase(ABC):
             raise ValueError(f"Invalid prompt type: {batch_input.prompt_type}")
 
 
-    @unittest.skip("skip")
     def test_batch_vqa_verify(self):
         batch_input = BatchInput.from_vlm_dataset(self.vlm_dataset, 5)
         import time
@@ -162,41 +159,45 @@ class VLMTestBase(ABC):
         logging.error(f"duration: {duration}")
         self.verify_response(batch_input, out)
     
-    @unittest.skip("skip")
     def test_batch_pixel_verify(self):
         batch_input = BatchInput.from_vlm_dataset(self.vlm_dataset, 5)
         batch_input_ids = self.get_batch_ids_input(batch_input)
         out = self._call_engine(batch_input_ids)
         self.verify_response(batch_input, out)
-    
-    # @unittest.skip("skip")
-    def test_batch_bench(self):
-        e2e_time = []
+
+    def test_batch_bench_raw(self):
+        """测试原始文本输入模式的批量性能"""
+        results = []
+        
+        logging.info("Testing text input mode...")
         for batch_size in self.batch_size:
             torch.cuda.empty_cache()
             batch_input = BatchInput.from_vlm_dataset(self.vlm_dataset, batch_size)
             out = self._call_engine(batch_input)
-            cur_e2e = out[-1]['meta_info']['e2e_latency']
-            e2e_time.append(cur_e2e)
-            logging.error(f"batch_size: {batch_size}, e2e_time: {cur_e2e}")
-        for batch_size, e2e_time in zip(self.batch_size, e2e_time):
-            logging.error(f"batch_size: {batch_size}, e2e_time: {e2e_time}")
-
-        e2e_time = []
+            result = process_bench_result(batch_input, out, "text", self.model_path)
+            results.append(result)
+        
+        quick_report(results, title="Raw Text Input Mode Performance")
+        save_bench_results(results, self.model_path, prefix="vlm_bench_raw")
+    
+    def test_batch_bench_prec(self):
+        """测试预处理像素输入模式的批量性能"""
+        results = []
+        
+        logging.info("Testing pixel input mode...")
         for batch_size in self.batch_size:
             torch.cuda.empty_cache()
             batch_input = BatchInput.from_vlm_dataset(self.vlm_dataset, batch_size)
             batch_input_ids = self.get_batch_ids_input(batch_input)
             out = self._call_engine(batch_input_ids)
-            cur_e2e = out[-1]['meta_info']['e2e_latency']
-            e2e_time.append(cur_e2e)
-            logging.error(f"batch_size: {batch_size}, e2e_time: {cur_e2e}")
+            result = process_bench_result(batch_input_ids, out, "pixel", self.model_path)
+            results.append(result)
+        
+        quick_report(results, title="Preprocessed Pixel Input Mode Performance")
+        save_bench_results(results, self.model_path, prefix="vlm_bench_prec")
 
-        for batch_size, e2e_time in zip(self.batch_size, e2e_time):
-            logging.error(f"batch_size: {batch_size}, e2e_time: {e2e_time}")
 
-
-# @unittest.skip("skip")
+@unittest.skip("skip")
 class TestGemmaVLM(VLMTestBase, unittest.TestCase):
 
     model_path = "google/gemma-3-4b-it"
@@ -215,16 +216,25 @@ class TestJanusProVLM(VLMTestBase, unittest.TestCase):
     chat_template = "janus-pro"
 
 
-# @unittest.skip("skip")
 class TestMiniCPMV(VLMTestBase, unittest.TestCase):
     model_path = "openbmb/MiniCPM-v-2_6"
     chat_template = "minicpmv"
+    batch_size = [20, 2, 4]
 
     def _image_data_from_processor_output(self, processor_output):
         pixel_values = processor_output["pixel_values"][0]
         tgt_sizes = processor_output["tgt_sizes"][0]
         return dict(modality="IMAGE", pixel_values=pixel_values, tgt_sizes=tgt_sizes)
     
+    @unittest.skip("skip")
+    def test_batch_vqa_verify(self):
+        #not support yet
+        pass
+
+    @unittest.skip("skip")
+    def test_batch_bench_raw(self):
+        #not support yet
+        pass
 
 @unittest.skip("skip")
 class TestMiniCPMO(VLMTestBase, unittest.TestCase):

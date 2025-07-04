@@ -254,10 +254,26 @@ class TestMiniCPMVProcessor(ProcessorTestBase, unittest.TestCase):
         )
         return input_ids, [pixel_values_image_data]
 
+    def test_process_mm_data_async(self):
+        text, image = self.one_req
+        request_obj = lambda: None
+        request_obj.audio_data = []
+        async_begin = -time.time()
+        result = asyncio.run(self.mm_processor.old_process_mm_data_async(
+            image_data=image,
+            audio_data=[],
+            request_obj=request_obj,
+            input_text=text,
+            max_req_input_len=self.max_req_input_len
+        ))
+        duration = time.time() + async_begin
+        print(f"process_mm_data_async 测试通过: {type(result)}, 耗时: {duration:.4f}s")
+        return result
+
     def test_prec_process(self):
         input_ids, pixel_values_image_data = self.get_pixel_values()
         begin = time.time()
-        result = asyncio.run(self.mm_processor.process_pixel_data_async(
+        result = asyncio.run(self.mm_processor.process_mm_data_async(
             image_data=pixel_values_image_data,
             audio_data=[],
             input_text=input_ids,

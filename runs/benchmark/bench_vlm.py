@@ -3,6 +3,8 @@ import logging
 import unittest
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
+import datetime
+import os
 
 import torch
 from transformers import AutoTokenizer, AutoProcessor
@@ -86,18 +88,41 @@ class VLMTestBase(ABC):
         for idx, item in enumerate(output):
             logging.error(f"idx: {idx}, answer: {batch_input.answer[idx]}\n output: {item}")
 
+    """
+    parallel batch processor not fit prec
     def _get_processor_batchout(self, batch_input: BatchInput):
         # Process inputs using processor
         inputs = self.processor( text=batch_input.prompt, images=batch_input.image_data,
             return_tensors="pt",
         )
-
         return inputs
-    
     def _processor_out2list(self, processor_output):
         input_ids_list = processor_output.input_ids.tolist()
         image_data_list = processor_output.pixel_values.tolist()
         return input_ids_list, image_data_list
+    """
+
+    def _get_processor_batchout(self, batch_input: BatchInput):
+        processor_output = []
+        for idx in range(len(batch_input)):
+            prompt = batch_input.prompt[idx]
+            image_data = batch_input.image_data[idx]
+            inputs = self.processor( text=prompt, images=image_data,
+                return_tensors="pt",
+            )
+            processor_output.append(inputs)
+        return processor_output
+
+    def _processor_out2list(self, processor_output):
+        input_ids_list = []
+        image_data_list = []
+        for item in processor_output:
+            input_ids_list.append(item["input_ids"][0].tolist())
+            image_data_list.append(self._image_data_from_processor_output(item))
+        return input_ids_list, image_data_list
+    
+    def _image_data_from_processor_output(self, processor_output):
+        raise NotImplementedError
 
     def get_batch_ids_input(self, batch_input: BatchInput):
         processor_output = self._get_processor_batchout(batch_input)
@@ -176,27 +201,11 @@ class TestGemmaVLM(VLMTestBase, unittest.TestCase):
 
     model_path = "google/gemma-3-4b-it"
     chat_template = "gemma-it"
-    batch_size = [20, 2, 4,  80, 120, 140, 160, 180, 200]
+    batch_size = [20, 2, 4,  80, 120, 140, 160, 180, 200, 220, 240]
 
-    def _get_processor_batchout(self, batch_input: BatchInput):
-        processor_output = []
-        for idx in range(len(batch_input)):
-            prompt = batch_input.prompt[idx]
-            image_data = batch_input.image_data[idx]
-            inputs = self.processor( text=prompt, images=image_data,
-                return_tensors="pt",
-            )
-            processor_output.append(inputs)
-        return processor_output
-    
-    def _processor_out2list(self, processor_output):
-        input_ids_list = []
-        image_data_list = []
-        for item in processor_output:
-            input_ids_list.append(item["input_ids"][0].tolist())
-            image_data = dict(modality="IMAGE", pixel_values=item["pixel_values"][0])
-            image_data_list.append(image_data)
-        return input_ids_list, image_data_list
+    def _image_data_from_processor_output(self, processor_output):
+        pixel_values = processor_output["pixel_values"][0]
+        return dict(modality="IMAGE", pixel_values=pixel_values)
 
 
 @unittest.skip("skip")
@@ -206,10 +215,15 @@ class TestJanusProVLM(VLMTestBase, unittest.TestCase):
     chat_template = "janus-pro"
 
 
-@unittest.skip("skip")
+# @unittest.skip("skip")
 class TestMiniCPMV(VLMTestBase, unittest.TestCase):
     model_path = "openbmb/MiniCPM-v-2_6"
     chat_template = "minicpmv"
+
+    def _image_data_from_processor_output(self, processor_output):
+        pixel_values = processor_output["pixel_values"][0]
+        tgt_sizes = processor_output["tgt_sizes"][0]
+        return dict(modality="IMAGE", pixel_values=pixel_values, tgt_sizes=tgt_sizes)
     
 
 @unittest.skip("skip")

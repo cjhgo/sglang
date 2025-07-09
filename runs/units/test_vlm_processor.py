@@ -128,7 +128,6 @@ class ProcessorTestBase(ABC):
         hf_result = self.test_hf_processor()
         sgl_raw_result = self.test_process_mm_data_async()
         sgl_prec_result = self.test_prec_process()
-        # import ipdb; ipdb.set_trace()
         
         # 比较两个结果
         self._compare_results(sgl_raw_result, sgl_prec_result)
@@ -174,6 +173,15 @@ class ProcessorTestBase(ABC):
                 raise AssertionError(f"第 {i+1} 个 item 的 image_offsets 不匹配")
             print(f"  ✓ image_offsets 匹配: {len(raw_item.image_offsets)} 个偏移")
             
+            # 比较 tgt_size
+            if hasattr(raw_item, 'tgt_size') and hasattr(prec_item, 'tgt_size'):
+                if len(raw_item.tgt_size) != len(prec_item.tgt_size):
+                    raise AssertionError(f"第 {i+1} 个 item 的 tgt_size 数量不匹配: raw={len(raw_item.tgt_size)}, prec={len(prec_item.tgt_size)}")
+                
+                for j, (raw_ts, prec_ts) in enumerate(zip(raw_item.tgt_size, prec_item.tgt_size)):
+                    if not torch.equal(raw_ts, prec_ts):
+                        raise AssertionError(f"第 {i+1} 个 item 的第 {j+1} 个 tgt_size 不匹配")
+                print(f"  ✓ tgt_size 匹配: {len(raw_item.tgt_size)} 个尺寸")
             # 比较 pixel_values
             if raw_item.pixel_values is not None and prec_item.pixel_values is not None:
                 if len(raw_item.pixel_values) != len(prec_item.pixel_values):
@@ -185,15 +193,6 @@ class ProcessorTestBase(ABC):
                         raise AssertionError(f"第 {i+1} 个 item 的第 {j+1} 个 pixel_value 不匹配")
                 print(f"  ✓ pixel_values 匹配: {len(raw_item.pixel_values)} 个张量")
             
-            # 比较 tgt_size
-            if hasattr(raw_item, 'tgt_size') and hasattr(prec_item, 'tgt_size'):
-                if len(raw_item.tgt_size) != len(prec_item.tgt_size):
-                    raise AssertionError(f"第 {i+1} 个 item 的 tgt_size 数量不匹配: raw={len(raw_item.tgt_size)}, prec={len(prec_item.tgt_size)}")
-                
-                for j, (raw_ts, prec_ts) in enumerate(zip(raw_item.tgt_size, prec_item.tgt_size)):
-                    if not torch.equal(raw_ts, prec_ts):
-                        raise AssertionError(f"第 {i+1} 个 item 的第 {j+1} 个 tgt_size 不匹配")
-                print(f"  ✓ tgt_size 匹配: {len(raw_item.tgt_size)} 个尺寸")
         
         print("\n=== 所有比较通过！✓ ===\n")
 
@@ -234,6 +233,7 @@ class TestMiniCPMVProcessor(ProcessorTestBase, unittest.TestCase):
         
         return MultimodalSpecialTokens(
             image_token=self.mm_processor.image_token, 
+            image_token_regex=self.mm_processor.image_token_regex,
             audio_token=self.mm_processor.audio_token
         )
 
@@ -249,40 +249,11 @@ class TestMiniCPMVProcessor(ProcessorTestBase, unittest.TestCase):
         # 构建预计算数据，包含 MiniCPM 所需的所有字段
         pixel_values_image_data = dict(
             modality="IMAGE",
-            pixel_values=hf_out["pixel_values"][0],
-            tgt_sizes=hf_out["tgt_sizes"][0],
+            pixel_values=hf_out["pixel_values"],#[0],
+            tgt_size=hf_out["tgt_sizes"], #[0],#name for sglang map
+            # tgt_sizes=hf_out["tgt_sizes"],#[0],#name from hf processor
         )
         return input_ids, [pixel_values_image_data]
-
-    def test_process_mm_data_async(self):
-        text, image = self.one_req
-        request_obj = lambda: None
-        request_obj.audio_data = []
-        async_begin = -time.time()
-        result = asyncio.run(self.mm_processor.old_process_mm_data_async(
-            image_data=image,
-            audio_data=[],
-            request_obj=request_obj,
-            input_text=text,
-            max_req_input_len=self.max_req_input_len
-        ))
-        duration = time.time() + async_begin
-        print(f"process_mm_data_async 测试通过: {type(result)}, 耗时: {duration:.4f}s")
-        return result
-
-    def test_prec_process(self):
-        input_ids, pixel_values_image_data = self.get_pixel_values()
-        begin = time.time()
-        result = asyncio.run(self.mm_processor.process_mm_data_async(
-            image_data=pixel_values_image_data,
-            audio_data=[],
-            input_text=input_ids,
-            request_obj=None,
-            max_req_input_len=self.max_req_input_len
-        ))
-        duration = time.time() - begin
-        print(f"prec_process 测试通过: {type(result)}, 耗时: {duration:.4f}s")
-        return result
 
 @unittest.skip("skip")
 class TestQwen2VLProcessor(ProcessorTestBase, unittest.TestCase):

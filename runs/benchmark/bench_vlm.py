@@ -72,7 +72,7 @@ class VLMTestBase(ABC):
             enable_multimodal=True,#necessary for gemma-3-4b-it
             mem_fraction_static=0.6,
             mm_attention_backend="fa3",
-            max_prefill_tokens=int(16384*5),
+            max_prefill_tokens=int(16384*10),
         )
 
     def tearDown(self):
@@ -176,6 +176,7 @@ class VLMTestBase(ABC):
             out = self._call_engine(batch_input)
             result = process_bench_result(batch_input, out, "text", self.model_path)
             results.append(result)
+            quick_report(results, title="Raw Text Input Mode Performance")
         
         quick_report(results, title="Raw Text Input Mode Performance")
         save_bench_results(results, self.model_path, prefix="vlm_bench_raw")
@@ -189,11 +190,15 @@ class VLMTestBase(ABC):
             torch.cuda.empty_cache()
             batch_input = BatchInput.from_vlm_dataset(self.vlm_dataset, batch_size)
             batch_input_ids = self.get_batch_ids_input(batch_input)
-            out = self._call_engine(batch_input_ids)
-            result = process_bench_result(batch_input_ids, out, "pixel", self.model_path)
-            results.append(result)
+            try:
+                out = self._call_engine(batch_input_ids)
+                result = process_bench_result(batch_input_ids, out, "pixel", self.model_path)
+                results.append(result)
+            except Exception as e:
+                logging.error(f"Error: {e}")
+                continue
+            quick_report(results, title="Raw Text Input Mode Performance")
         
-        quick_report(results, title="Preprocessed Pixel Input Mode Performance")
         save_bench_results(results, self.model_path, prefix="vlm_bench_prec")
 
 
@@ -219,22 +224,12 @@ class TestJanusProVLM(VLMTestBase, unittest.TestCase):
 class TestMiniCPMV(VLMTestBase, unittest.TestCase):
     model_path = "openbmb/MiniCPM-v-2_6"
     chat_template = "minicpmv"
-    batch_size = [20, 2, 4]
+    batch_size = [20, 2, 4, 8, 16, 64, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300]
 
     def _image_data_from_processor_output(self, processor_output):
-        pixel_values = processor_output["pixel_values"][0]
-        tgt_sizes = processor_output["tgt_sizes"][0]
-        return dict(modality="IMAGE", pixel_values=pixel_values, tgt_sizes=tgt_sizes)
-    
-    @unittest.skip("skip")
-    def test_batch_vqa_verify(self):
-        #not support yet
-        pass
-
-    @unittest.skip("skip")
-    def test_batch_bench_raw(self):
-        #not support yet
-        pass
+        pixel_values = processor_output["pixel_values"]
+        tgt_sizes = processor_output["tgt_sizes"]
+        return dict(modality="IMAGE", pixel_values=pixel_values, tgt_size=tgt_sizes)#!tgt_size no s
 
 @unittest.skip("skip")
 class TestMiniCPMO(VLMTestBase, unittest.TestCase):

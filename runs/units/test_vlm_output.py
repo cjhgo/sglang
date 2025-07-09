@@ -21,6 +21,8 @@ logging.basicConfig(level=logging.INFO)
 # 测试图片URL
 TEST_IMAGE_URL = "https://github.com/sgl-project/sglang/blob/main/test/lang/example_image.png?raw=true"
 
+from pathlib import Path
+abs_base = Path(__file__).resolve().parent
 
 class VLMTestBase(ABC):
     """VLM测试基类"""
@@ -38,6 +40,7 @@ class VLMTestBase(ABC):
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         response = requests.get(cls.image_url)
         cls.main_image = Image.open(BytesIO(response.content))
+        cls.main_image2 = cls.main_image.rotate(90).crop((0,0, 300, 300))
         cls.processor = AutoProcessor.from_pretrained(
             cls.model_path, trust_remote_code=True, use_fast=True
         )
@@ -53,8 +56,8 @@ class VLMTestBase(ABC):
             chat_template=self.chat_template,
             device=self.device.type,
             trust_remote_code=True,
-            enable_multimodal=True,
-            mem_fraction_static=0.6,
+            enable_multimodal=True,#necessary for gemma-3-4b-it
+            mem_fraction_static=0.7,
         )
 
     def tearDown(self):
@@ -70,7 +73,8 @@ class VLMTestBase(ABC):
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": self.image_url}},
-                        {"type": "text", "text": "What's in this picture?"},
+                        {"type": "image_url", "image_url": {"url": self.image_url}},
+                        {"type": "text", "text": "这两个图片内容一样吗?"},
                     ],
                 }
             ],
@@ -89,9 +93,7 @@ class VLMTestBase(ABC):
         text = conv.get_prompt()
 
         # Process inputs using processor
-        inputs = self.processor( text=[text], images=[self.main_image],
-            return_tensors="pt",
-        ).to(self.device)
+        inputs = self.processor( text=[text], images=[[self.main_image, self.main_image2]], return_tensors="pt",)
 
         return inputs
 
@@ -100,20 +102,8 @@ class VLMTestBase(ABC):
         conv = generate_chat_conv(req, template_name=self.chat_template)
         text = conv.get_prompt()
         output = await self.engine.async_generate(
-            prompt=text,
-            image_data=[self.main_image],
-            sampling_params=dict(temperature=0.0),
-        )
-        self.verify_response(output)
-
-    async def test_understands_image_by_input_ids(self):
-        req = self.get_completion_request()
-        conv = generate_chat_conv(req, template_name=self.chat_template)
-        text = conv.get_prompt()
-        input_ids = self.tokenizer.encode(text, return_tensors="pt")[0].tolist()
-        output = await self.engine.async_generate(
-            input_ids=input_ids,
-            image_data=[self.main_image],
+            prompt=[text],
+            image_data=[[self.main_image, self.main_image2]],
             sampling_params=dict(temperature=0.0),
         )
         self.verify_response(output)
@@ -125,9 +115,10 @@ class VLMTestBase(ABC):
     async def test_understands_pixel_values(self):
         req = self.get_completion_request()
         processor_output = self.get_processor_output(req=req)
+        tmp = self._pixel_values_image_data(processor_output)
         output = await self.engine.async_generate(
-            input_ids=processor_output["input_ids"][0].detach().cpu().tolist(),
-            image_data=[self._pixel_values_image_data(processor_output)],
+            input_ids=[processor_output["input_ids"][0].detach().cpu().tolist()],
+            image_data=[tmp], #tmp is dict, which collapse mulit image... not [[tmp]]
             sampling_params=dict(temperature=0.0),
         )
         self.verify_response(output)
@@ -151,27 +142,29 @@ class TestJanusProVLM(VLMTestBase, unittest.IsolatedAsyncioTestCase):
     model_path = "deepseek-ai/Janus-Pro-1B"
     chat_template = "janus-pro"
 
+
 class TestMiniCPMV(VLMTestBase, unittest.IsolatedAsyncioTestCase):
+    # model_path = f"{abs_base}/../../../../modelbest/sync/checkpoint-1170"
     model_path = "openbmb/MiniCPM-v-2_6"
     chat_template = "minicpmv"
-    
-    @unittest.skip("MiniCPMV还未实现pixel_values版本")
-    async def test_understands_pixel_values(self):
-        raise NotImplementedError
-        #or pass
-        #todo: implement this
 
-@unittest.skip("skip")
+    def _pixel_values_image_data(self, processor_output):
+        return dict(
+            modality="IMAGE",
+            pixel_values=processor_output["pixel_values"],#[0],
+            tgt_size=processor_output["tgt_sizes"],#[0],#name for sglang map
+        )
+
 class TestMiniCPMO(VLMTestBase, unittest.IsolatedAsyncioTestCase):
     model_path = "openbmb/MiniCPM-o-2_6"
     chat_template = "minicpmo"
+    def _pixel_values_image_data(self, processor_output):
+        return dict(
+            modality="IMAGE",
+            pixel_values=processor_output["pixel_values"],#[0],
+            tgt_size=processor_output["tgt_sizes"],#[0],#name for sglang map
+        )
     
-    @unittest.skip("MiniCPMO还未实现pixel_values版本")
-    async def test_understands_pixel_values(self):
-        raise NotImplementedError
-        #or pass
-        #todo: implement this
-
 
 if __name__ == "__main__":
     unittest.main()

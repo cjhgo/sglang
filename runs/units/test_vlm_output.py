@@ -149,11 +149,15 @@ class TestMiniCPMV(VLMTestBase, unittest.IsolatedAsyncioTestCase):
     chat_template = "minicpmv"
 
     def _pixel_values_image_data(self, processor_output):
-        return dict(
-            modality="IMAGE",
-            pixel_values=processor_output["pixel_values"],#[0],
-            tgt_size=processor_output["tgt_sizes"],#[0],#name for sglang map
-        )
+        image_slice_patch_size = len(processor_output.pixel_values[0])
+        pre_dicts = []
+        for i in range(image_slice_patch_size):
+            pre_dicts.append(dict(
+                modality="IMAGE",
+                pixel_values=processor_output.pixel_values[0][i],
+                tgt_size=processor_output.tgt_sizes[0][i],
+            ))
+        return pre_dicts
 
 class TestMiniCPMO(VLMTestBase, unittest.IsolatedAsyncioTestCase):
     model_path = "openbmb/MiniCPM-o-2_6"

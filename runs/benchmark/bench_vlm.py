@@ -227,9 +227,15 @@ class TestMiniCPMV(VLMTestBase, unittest.TestCase):
     batch_size = [20, 2, 4, 8, 16, 64, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300]
 
     def _image_data_from_processor_output(self, processor_output):
-        pixel_values = processor_output["pixel_values"]
-        tgt_sizes = processor_output["tgt_sizes"]
-        return dict(modality="IMAGE", pixel_values=pixel_values, tgt_size=tgt_sizes)#!tgt_size no s
+        image_slice_patch_size = len(processor_output.pixel_values[0])
+        pre_dicts = []
+        for i in range(image_slice_patch_size):
+            pre_dicts.append(dict(
+                modality="IMAGE",
+                pixel_values=processor_output.pixel_values[0][i],
+                tgt_size=processor_output.tgt_sizes[0][i],
+            ))
+        return pre_dicts
 
 @unittest.skip("skip")
 class TestMiniCPMO(VLMTestBase, unittest.TestCase):
